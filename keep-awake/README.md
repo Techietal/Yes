@@ -9,10 +9,17 @@ blocked or flagged on your machine.
 
 ## Use
 
-1. Copy `keepawake.ps1` and `keepawake.bat` into the same folder.
-2. Double-click `keepawake.bat`.
-3. A console window opens and stays open. Leave it running.
+1. Copy the files into the same folder.
+2. **First**, double-click `check-status.bat`. It is read-only and tells you
+   whether the screen saver is a personal setting you can just switch off, or
+   something enforced by policy.
+3. If it says policy, double-click `keepawake.bat`. A console window opens and
+   stays open. Leave it running.
 4. Close the window, press `Ctrl+C`, or lock the PC (`Win+L`) to stop.
+
+If `check-status` says the screen saver is *not* policy-driven, skip the script
+entirely and just turn the screen saver off in Settings. That is permanent and
+needs nothing running.
 
 ## How it works
 
@@ -24,11 +31,18 @@ SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
 
 That is the same call VLC, YouTube and PowerPoint make during playback. It tells
 Windows this thread needs the system and the display kept awake, and
-`ES_CONTINUOUS` makes it stick for the life of the thread, so there is no loop
-re-asserting it.
+`ES_CONTINUOUS` makes it stick for the life of the thread. It is re-asserted
+every 30 seconds anyway, because the execution state is per-thread and Windows
+clears it on some session events (RDP reconnect, fast user switching, display
+hotplug). Re-asserting is one API call and is not input injection.
 
-The script then idles, checking once every 30 seconds whether `LogonUI.exe`
-exists. That process only runs while the lock screen is up, so its appearance
+`ES_DISPLAY_REQUIRED` is the flag Microsoft documents for this exact case:
+"Even though there is no mouse or keyboard input, the screen is indeed in use,
+so don't blank it or start the screen saver." The screen saver is the target
+here, not display timeout - they are separate mechanisms with separate timers,
+and setting the display timeout to Never does not stop a screen saver.
+
+The script also checks once every 30 seconds whether `LogonUI.exe` exists. That process only runs while the lock screen is up, so its appearance
 means you locked the PC and the script stands down. On exit it calls
 `SetThreadExecutionState(ES_CONTINUOUS)` alone, handing control back to the
 normal power plan.

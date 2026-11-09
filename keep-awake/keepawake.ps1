@@ -1,11 +1,14 @@
 # keepawake.ps1
 #
-# Keeps the display on and the session from going idle until you lock the PC
-# (Win+L), close this window, or press Ctrl+C.
+# Keeps the display on and stops the screensaver from starting, until you lock
+# the PC (Win+L), close this window, or press Ctrl+C.
 #
-# Uses ONE documented Windows API and nothing else. No synthetic input, no
-# keystroke injection, no polling of anything security software cares about.
-# This is the same call VLC, YouTube and PowerPoint make during playback.
+# Uses ONE documented Windows API. No synthetic input, no keystroke injection.
+#
+# ES_DISPLAY_REQUIRED is the flag Microsoft documents for exactly this case:
+# "Even though there is no mouse or keyboard input, the screen is indeed in use,
+# so don't blank it or start the screen saver." It is the same flag video
+# players and PowerPoint use during playback.
 #
 # Run:  double-click keepawake.bat
 #   or: powershell -NoProfile -ExecutionPolicy Bypass -File keepawake.ps1
@@ -25,29 +28,40 @@ public static extern uint SetThreadExecutionState(uint esFlags);
 
 Write-Host ""
 Write-Host "  Keep-awake is running." -ForegroundColor Green
-Write-Host "  Screen will not sleep, dim, or start the screensaver."
+Write-Host "  Screen will not blank and the screensaver will not start."
 Write-Host "  Stops by itself when you lock the PC (Win+L)."
 Write-Host "  Or close this window / press Ctrl+C."
 Write-Host ""
 
-try {
-    # One call. ES_CONTINUOUS makes it stick for the life of this thread, so
-    # there is nothing to re-assert and no loop churning in the background.
-    $prev = [KeepAwake.Native]::SetThreadExecutionState($KEEP_AWAKE)
-    if ($prev -eq 0) {
-        Write-Host "  Windows refused the request (SetThreadExecutionState returned 0)." -ForegroundColor Red
-        Write-Host "  A policy on this machine may be blocking it. See ALTERNATIVES.md."
-        exit 1
-    }
+$firstCall = $true
 
-    # Idle here. LogonUI.exe only exists while the lock screen is up, so its
-    # appearance means you locked the PC and this should stand down.
-    while (-not (Get-Process -Name LogonUI -ErrorAction SilentlyContinue)) {
+try {
+    while ($true) {
+        # Re-asserted every 30s rather than called once. The execution state is
+        # per-thread and Windows clears it on some session events (RDP reconnect,
+        # fast user switching, display hotplug). Re-asserting is one API call and
+        # costs nothing; it is not input injection, so nothing flags it.
+        $prev = [KeepAwake.Native]::SetThreadExecutionState($KEEP_AWAKE)
+
+        if ($firstCall) {
+            if ($prev -eq 0) {
+                Write-Host "  Windows refused the request (returned 0)." -ForegroundColor Red
+                Write-Host "  A policy may be blocking it. Run check-status.ps1."
+                exit 1
+            }
+            $firstCall = $false
+        }
+
+        # LogonUI.exe only exists while the lock screen is up, so its appearance
+        # means you locked the PC and this should stand down.
+        if (Get-Process -Name LogonUI -ErrorAction SilentlyContinue) {
+            Write-Host ""
+            Write-Host "  PC locked - keep-awake stopped." -ForegroundColor Yellow
+            break
+        }
+
         Start-Sleep -Seconds 30
     }
-
-    Write-Host ""
-    Write-Host "  PC locked - keep-awake stopped." -ForegroundColor Yellow
 }
 finally {
     [void][KeepAwake.Native]::SetThreadExecutionState($RELEASE)
