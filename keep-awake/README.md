@@ -3,7 +3,9 @@
 Stops a Windows PC from going idle, dimming, or starting the screensaver while
 long-running work is in progress (an AI agent, a build, a render, a download).
 
-Nothing to install. Two files, both using APIs that ship with Windows.
+Nothing to install. `keepawake.ps1` and `keepawake.bat` use only APIs that ship
+with Windows. `ALTERNATIVES.md` lists the no-script fallbacks if this one is
+blocked or flagged on your machine.
 
 ## Use
 
@@ -14,17 +16,27 @@ Nothing to install. Two files, both using APIs that ship with Windows.
 
 ## How it works
 
-Three mechanisms, because they cover different things:
+One documented Windows API, called once:
 
-| # | Mechanism | What it prevents |
-|---|-----------|------------------|
-| 1 | `SetThreadExecutionState(ES_CONTINUOUS \| ES_SYSTEM_REQUIRED \| ES_DISPLAY_REQUIRED)` | Display sleep, dimming, screensaver. The same call video players use during playback. |
-| 2 | Synthetic `F15` keypress every 50s | The user-input idle timer that a Group Policy "machine inactivity limit" auto-lock measures. `F15` has no physical key on a normal keyboard and is ignored by applications. |
-| 3 | `LogonUI.exe` process check | Detects that the PC was locked, then exits and restores normal power behaviour. |
+```
+SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+```
 
-On exit the script calls `SetThreadExecutionState(ES_CONTINUOUS)` alone, which
-hands control back to the normal power plan. It does not leave the machine in a
-modified state.
+That is the same call VLC, YouTube and PowerPoint make during playback. It tells
+Windows this thread needs the system and the display kept awake, and
+`ES_CONTINUOUS` makes it stick for the life of the thread, so there is no loop
+re-asserting it.
+
+The script then idles, checking once every 30 seconds whether `LogonUI.exe`
+exists. That process only runs while the lock screen is up, so its appearance
+means you locked the PC and the script stands down. On exit it calls
+`SetThreadExecutionState(ES_CONTINUOUS)` alone, handing control back to the
+normal power plan.
+
+There is **no synthetic input** in this version. The first release called
+`keybd_event` to fake an F15 keypress every 50 seconds; `keybd_event` is input
+injection, the same call malware uses to fake clicks, and endpoint detection
+tools alert on it by design. It has been removed.
 
 ## Requirements
 
@@ -42,7 +54,12 @@ modified state.
 - A UAC secure-desktop prompt can briefly spawn `LogonUI.exe` and make the script
   believe the PC was locked. Restart it if that happens.
 - This keeps the *session* awake. It does not defeat a policy that locks the
-  workstation on a timer enforced at a level the synthetic keypress cannot reach.
+  workstation on a timer enforced at a level the API cannot reach. If your
+  employer enforces an inactivity lock, that is usually a deliberate control, and
+  working around it on a managed device can breach an acceptable-use policy.
+- If endpoint security flags the script, the trigger is the `.ps1` file or the
+  PowerShell process, not the API. See `ALTERNATIVES.md` for options that involve
+  no script at all.
 
 ## Tested
 
